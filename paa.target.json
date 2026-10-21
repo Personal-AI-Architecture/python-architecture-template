@@ -1,0 +1,34 @@
+{
+  "name": "python-architecture-template",
+  "language": "python",
+  "root": ".",
+  "contracts": {
+    "lock_file": "paa.lock.json"
+  },
+  "commands": [
+    {
+      "name": "typecheck",
+      "command": "python -m mypy src"
+    },
+    {
+      "name": "syntax",
+      "command": "python -m compileall -q src scripts tests"
+    },
+    {
+      "name": "unit",
+      "command": "python -m unittest discover -s tests/unit -p 'test_*.py'"
+    },
+    {
+      "name": "integration",
+      "command": "python -m unittest discover -s tests/integration -p 'test_*.py'"
+    },
+    {
+      "name": "conformance",
+      "command": "python -m unittest discover -s tests/conformance -p 'test_*.py'"
+    },
+    {
+      "name": "acceptance",
+      "command": "python scripts/acceptance_check.py"
+    }
+  ]
+}
