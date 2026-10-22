@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TypedDict
+from typing import Callable, TypedDict
 from urllib.parse import urlsplit
 
 from paa_template.engine import AgentLoop
@@ -33,7 +33,7 @@ class GatewayResponse:
 
 
 class PublicMessageRequest(TypedDict):
-    content: str
+    content: tuple[dict[str, object], ...]
     metadata: dict[str, object]
 
 
@@ -81,9 +81,10 @@ class ConversationStore:
 
 
 class Gateway:
-    def __init__(self, engine: AgentLoop, store: ConversationStore | None = None) -> None:
+    def __init__(self, engine: AgentLoop, store: ConversationStore | None = None, current_model: Callable[[], str] | None = None) -> None:
         self.engine = engine
         self.store = store or ConversationStore()
+        self.current_model = current_model or (lambda: "mock")
 
     def handle(
         self,
@@ -129,14 +130,21 @@ class Gateway:
         user_message = Message("user", parsed["content"])
         self.store.append(conversation.id, user_message)
         metadata = parsed.get("metadata") or {}
+        correlation_id = str(metadata.get("correlation_id") or _new_id("corr"))
         engine_request = EngineRequest(
             messages=tuple(conversation.messages),
             metadata=EngineRequestMetadata(
-                correlation_id=str(metadata.get("correlation_id") or _new_id("corr")),
+                correlation_id=correlation_id,
                 conversation_id=conversation.id,
-                actor_id=actor_id,
-                actor_permissions=tuple(item.strip() for item in actor_permissions.split(",") if item.strip()),
+                client_context=dict(metadata),
             ),
+            model=self.current_model(),
+            auth_context={
+                "actor": {"id": actor_id, "type": "owner", "display_name": actor_id, "status": "active", "created": _now()},
+                "authentication_id": _new_id("authn"),
+                "authenticated_at": _now(),
+                "correlation_id": correlation_id,
+            },
         )
         return GatewayResponse(
             200,
@@ -146,20 +154,21 @@ class Gateway:
                 "Connection": "keep-alive",
                 "X-Conversation-ID": conversation.id,
             },
-            stream=self._stream_and_persist(conversation.id, engine_request, {"X-Actor-ID": actor_id, "X-Actor-Permissions": actor_permissions}),
+            stream=self._stream_and_persist(conversation.id, engine_request),
         )
 
-    def _stream_and_persist(self, conversation_id: str, request: EngineRequest, actor_headers: Mapping[str, str]) -> Iterator[dict[str, object]]:
+    def _stream_and_persist(self, conversation_id: str, request: EngineRequest) -> Iterator[dict[str, object]]:
         text_parts: list[str] = []
-        for event in self.engine.run(request, actor_headers):
+        for event in self.engine.run(request):
             data = dict(event.data)
             if event.event == "text-delta":
-                text_parts.append(str(data.get("text", "")))
+                text_parts.append(str(data.get("content", "")))
             if event.event == "done":
                 data.setdefault("finish_reason", "stop")
                 data.setdefault("message_id", _new_id("msg"))
                 if text_parts:
                     self.store.append(conversation_id, Message("assistant", "".join(text_parts)))
+            data["_event_type"] = event.event
             yield {"event": event.event, "data": data}
 
     @staticmethod
@@ -170,9 +179,18 @@ class Gateway:
             return None
         content = body.get("content")
         metadata = body.get("metadata", {})
-        if not isinstance(content, str) or not content.strip() or not isinstance(metadata, Mapping):
+        if not isinstance(content, list) or not content or not isinstance(metadata, Mapping):
             return None
-        return {"content": content, "metadata": dict(metadata)}
+        parts: list[dict[str, object]] = []
+        for part in content:
+            if not isinstance(part, Mapping) or part.get("type") not in {"text", "image", "file"}:
+                return None
+            if part["type"] == "text" and (not isinstance(part.get("text"), str) or set(part) != {"type", "text"}):
+                return None
+            if part["type"] in {"image", "file"} and not isinstance(part.get("url"), str):
+                return None
+            parts.append(dict(part))
+        return {"content": tuple(parts), "metadata": dict(metadata)}
 
     @staticmethod
     def _summary(conversation: Conversation) -> dict[str, object]:
@@ -184,9 +202,9 @@ class Gateway:
             "id": conversation.id,
             "created_at": conversation.created_at,
             "updated_at": conversation.updated_at,
-            "messages": [{"id": _new_id("msg"), "role": message.role, "content": message.content, "created_at": conversation.updated_at} for message in conversation.messages],
+            "messages": [{"id": _new_id("msg"), "role": message.role, "content": list(message.parts), "created_at": conversation.updated_at} for message in conversation.messages],
         }
 
     @staticmethod
     def _error(status: int, code: str, message: str) -> GatewayResponse:
-        return GatewayResponse(status, {"Content-Type": "application/json"}, {"error": {"code": code, "message": message}})
+        return GatewayResponse(status, {"Content-Type": "application/json"}, {"code": code, "message": message})

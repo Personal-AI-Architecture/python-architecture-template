@@ -14,7 +14,7 @@ class GatewayLifecycleTests(unittest.TestCase):
         gateway.store.memory = memory
         headers = {"X-Actor-ID": "actor-integration", "X-Actor-Permissions": "memory:read,memory:write"}
 
-        response = gateway.handle("POST", "/conversations/messages", body={"content": "Start"}, headers=headers)
+        response = gateway.handle("POST", "/conversations/messages", body={"content": [{"type": "text", "text": "Start"}]}, headers=headers)
         events = list(response.stream)
         self.assertEqual(events[-1]["data"]["finish_reason"], "stop")
         conversation_id = response.headers["X-Conversation-ID"]

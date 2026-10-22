@@ -4,7 +4,7 @@ This directory is the Python implementation template for Personal AI
 Architecture.
 
 - Keep PAA-facing routes, schemas, message shapes, and stream events aligned
-  with `specs/` and `paa.lock.json`.
+  with `contracts/` and `paa.lock.json`.
 - Keep provider-specific details in `src/paa_template/adapters/`.
 - Keep runtime configuration separate from request metadata.
 - Run `python scripts/check_paa.py`, `python scripts/check_contracts.py`,

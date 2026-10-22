@@ -23,9 +23,22 @@ class ToolCall:
 @dataclass(frozen=True)
 class Message:
     role: MessageRole
-    content: str
+    content: tuple[dict[str, Any], ...] | str
     tool_calls: tuple[ToolCall, ...] = ()
     tool_call_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.content, str):
+            object.__setattr__(self, "content", ({"type": "text", "text": self.content},))
+
+    @property
+    def parts(self) -> tuple[dict[str, Any], ...]:
+        content = self.content
+        return ({"type": "text", "text": content},) if isinstance(content, str) else content
+
+    @property
+    def text(self) -> str:
+        return "".join(str(part.get("text", "")) for part in self.parts if part.get("type") == "text")
 
 
 CanonicalMessage: TypeAlias = Message
@@ -48,15 +61,14 @@ class EngineRequestMetadata:
     conversation_id: str | None = None
     trigger: str | None = None
     client_context: dict[str, Any] = field(default_factory=dict)
-    actor_id: str | None = None
-    actor_permissions: tuple[str, ...] = ()
-    allowed_tool_sources: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class EngineRequest:
     messages: tuple[CanonicalMessage, ...]
     metadata: EngineRequestMetadata
+    model: str
+    auth_context: dict[str, Any]
 
 
 @dataclass(frozen=True)

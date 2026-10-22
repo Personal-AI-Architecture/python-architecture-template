@@ -21,7 +21,7 @@ class HTTPServerTests(unittest.TestCase):
                 self.assertEqual(json.loads(response.read()), {"status": "ok", "architecture": "PAA"})
             request = Request(
                 f"{base}/conversations/messages",
-                data=json.dumps({"content": "Hello"}).encode(),
+                data=json.dumps({"content": [{"type": "text", "text": "Hello"}]}).encode(),
                 headers={
                     "Content-Type": "application/json",
                     "X-Actor-ID": "http-test",

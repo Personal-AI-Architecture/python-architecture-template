@@ -34,7 +34,7 @@ def main() -> int:
     gateway = Gateway(AgentLoop(MockAdapter("acceptance-ok")))
     gateway.store.memory = memory
     headers = {"X-Actor-ID": "actor-acceptance", "X-Actor-Permissions": "memory:read,memory:write"}
-    response = gateway.handle("POST", "/conversations/messages", body={"content": "Hello", "metadata": {"source": "acceptance"}}, headers=headers)
+    response = gateway.handle("POST", "/conversations/messages", body={"content": [{"type": "text", "text": "Hello"}], "metadata": {"source": "acceptance"}}, headers=headers)
     assert response.status == 200
     events = list(response.stream)
     assert events[0]["event"] == "text-delta"

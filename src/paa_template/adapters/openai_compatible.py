@@ -40,7 +40,7 @@ class OpenAICompatibleAdapter:
 def message_to_provider(message: Any) -> dict[str, Any]:
     """Translate a canonical message at the provider boundary only."""
 
-    output = {"role": message.role, "content": message.content}
+    output = {"role": message.role, "content": list(message.parts)}
     if message.tool_calls:
         output["tool_calls"] = [
             {"id": call.id, "type": "function", "function": {"name": call.name, "arguments": call.arguments}}

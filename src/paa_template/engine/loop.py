@@ -12,21 +12,25 @@ class AgentLoop:
         self.model_adapter = model_adapter
         self.tools = tuple(tool for tool in (normalize_tool_definition(item) for item in tools) if tool is not None)
 
-    def run(self, request: EngineRequest, actor_headers: Mapping[str, str]) -> Iterator[EngineStreamEvent]:
+    def run(self, request: EngineRequest) -> Iterator[EngineStreamEvent]:
         if not request.metadata.correlation_id.strip():
             yield EngineStreamEvent("error", {"code": "provider_error", "message": "Missing correlation_id."})
             return
-        if not actor_headers.get("X-Actor-ID") or not actor_headers.get("X-Actor-Permissions"):
-            yield EngineStreamEvent("error", {"code": "provider_error", "message": "Missing required actor headers."})
+        actor = request.auth_context.get("actor")
+        if not isinstance(actor, Mapping) or not actor.get("id") or request.auth_context.get("correlation_id") != request.metadata.correlation_id:
+            yield EngineStreamEvent("error", {"code": "unauthorized", "message": "Missing or invalid authenticated actor context."})
+            return
+        if not request.model.strip():
+            yield EngineStreamEvent("error", {"code": "invalid_request", "message": "Missing selected model."})
             return
 
-        completion = CompletionRequest(messages=request.messages, tools=self.tools, stream=True)
+        completion = CompletionRequest(messages=request.messages, tools=self.tools, stream=True, model=request.model)
         try:
             for chunk in self.model_adapter.stream(completion):
                 if chunk.type == "text-delta":
                     content = chunk.delta.get("content", "")
                     if content:
-                        yield EngineStreamEvent("text-delta", {"text": content})
+                        yield EngineStreamEvent("text-delta", {"content": content})
                 elif chunk.type == "tool-call":
                     yield EngineStreamEvent("tool-call", dict(chunk.delta))
                 elif chunk.type == "tool-result":
