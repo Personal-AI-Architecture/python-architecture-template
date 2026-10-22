@@ -12,15 +12,17 @@ class EngineTests(unittest.TestCase):
         request = EngineRequest(
             messages=(Message("user", "Hi"),),
             metadata=EngineRequestMetadata("corr-1"),
+            model="mock",
+            auth_context={"actor": {"id": "actor-1"}, "correlation_id": "corr-1"},
         )
-        events = list(loop.run(request, {"X-Actor-ID": "actor-1", "X-Actor-Permissions": "memory:read"}))
+        events = list(loop.run(request))
         self.assertEqual([event.event for event in events], ["text-delta", "done"])
-        self.assertEqual(events[0].data["text"], "hello")
+        self.assertEqual(events[0].data["content"], "hello")
         self.assertEqual(events[-1].data["finish_reason"], "stop")
 
-    def test_actor_headers_are_required(self):
-        request = EngineRequest((Message("user", "Hi"),), EngineRequestMetadata("corr-1"))
-        events = list(AgentLoop(MockAdapter()).run(request, {}))
+    def test_authenticated_context_is_required(self):
+        request = EngineRequest((Message("user", "Hi"),), EngineRequestMetadata("corr-1"), "mock", {})
+        events = list(AgentLoop(MockAdapter()).run(request))
         self.assertEqual(events[0].event, "error")
 
 

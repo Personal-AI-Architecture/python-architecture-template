@@ -20,19 +20,26 @@ REQUIRED_ROUTES = [
     "/conversations/{id}/messages",
 ]
 REQUIRED_SCHEMAS = {
-    "specs/schemas/configuration.json": ["memory_root", "provider_adapter", "auth_mode", "tool_sources"],
-    "specs/schemas/identity.json": ["id", "type", "display_name", "status", "created"],
-    "specs/schemas/message.json": ["role", "content"],
-    "specs/schemas/policy.json": ["subject", "resource", "action", "effect"],
-    "specs/schemas/tool-definition.json": ["name", "description", "parameters"],
+    "contracts/schemas/configuration.json": ["memory_root", "provider_adapter", "auth_mode", "tool_sources"],
+    "contracts/schemas/identity.json": ["id", "type", "display_name", "status", "created"],
+    "contracts/schemas/message.json": ["role", "content"],
+    "contracts/schemas/policy.json": ["subject", "resource", "action", "effect"],
+    "contracts/schemas/tool-definition.json": ["name", "description", "parameters", "source", "visibility"],
+    "contracts/schemas/auth-context.json": ["actor", "authentication_id", "authenticated_at", "correlation_id"],
+    "contracts/schemas/authentication-result.json": ["authenticated", "reason", "correlation_id"],
+    "contracts/schemas/authorization-request.json": ["actor_id", "resource", "action", "correlation_id"],
+    "contracts/schemas/authorization-result.json": ["allowed", "reason", "audit_id", "correlation_id"],
+    "contracts/schemas/approval-request.json": ["request_id", "tool_name", "summary", "status", "created_at", "expires_at"],
+    "contracts/schemas/approval-decision.json": ["request_id", "decision", "decided_at"],
+    "contracts/schemas/audit-record.json": ["id", "occurred_at", "event", "actor_id", "action", "result", "correlation_id"],
 }
 
 
 def check_contracts() -> list[str]:
     errors = contract_errors()
-    gateway = (ROOT / "specs/openapi/gateway-api.yaml").read_text(encoding="utf-8")
-    engine = (ROOT / "specs/openapi/gateway-engine.yaml").read_text(encoding="utf-8")
-    model = (ROOT / "specs/openapi/model-api.yaml").read_text(encoding="utf-8")
+    gateway = (ROOT / "contracts/openapi/gateway-api.yaml").read_text(encoding="utf-8")
+    engine = (ROOT / "contracts/openapi/gateway-engine.yaml").read_text(encoding="utf-8")
+    model = (ROOT / "contracts/openapi/model-api.yaml").read_text(encoding="utf-8")
     for route in REQUIRED_ROUTES:
         if f"  {route}:" not in gateway:
             errors.append(f"Gateway API path is missing: {route}.")
@@ -41,7 +48,7 @@ def check_contracts() -> list[str]:
     for marker in ["SendMessageRequest", "ConversationList", "Conversation", "ClientSSEStream"]:
         if f"    {marker}:" not in gateway:
             errors.append(f"Gateway schema is missing: {marker}.")
-    for marker in ["/engine/chat:", "EngineRequest:", "RequestMetadata:", "SSEStream:", "X-Actor-ID", "X-Actor-Permissions"]:
+    for marker in ["/agent-loop/chat:", "AgentLoopRequest:", "RequestMetadata:", "SSEStream:", "auth_context:"]:
         if marker not in engine:
             errors.append(f"Gateway-Agent Loop contract is missing: {marker}.")
     for marker in ["/completions:", "CompletionRequest:", "CompletionStream:"]:

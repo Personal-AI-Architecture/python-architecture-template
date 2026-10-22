@@ -22,7 +22,7 @@ def main() -> int:
     response = gateway.handle(
         "POST",
         "/conversations/messages",
-        body={"content": "Explain what PAA is."},
+        body={"content": [{"type": "text", "text": "Explain what PAA is."}]},
         headers={"X-Actor-ID": "demo-user", "X-Actor-Permissions": "memory:read,memory:write"},
     )
     events = list(response.stream or ())

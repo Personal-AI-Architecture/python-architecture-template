@@ -11,7 +11,7 @@ without losing contract alignment.
 - A provider-neutral Agent Loop and a deterministic offline mock adapter.
 - A clear adapter boundary for connecting a real model provider.
 - Runtime configuration that keeps provider selection out of request metadata.
-- Pinned and vendored PAA contracts under `paa.lock.json`, `specs/`, and
+- Pinned and vendored PAA contracts under `paa.lock.json`, `contracts/`, and
   `vendor/paa-contracts/`.
 - Python-native contract, import-boundary, lock-in, unit, integration,
   conformance, acceptance, and static type checks.
@@ -52,7 +52,7 @@ In another terminal, check the demo host and send a canonical PAA message:
 ```bash
 curl http://127.0.0.1:8000/health
 
-curl -N -X POST http://127.0.0.1:8000/conversations/messages -H 'Content-Type: application/json' -H 'X-Actor-ID: demo-user' -H 'X-Actor-Permissions: memory:read,memory:write' -d '{"content":"Explain what PAA is."}'
+curl -N -X POST http://127.0.0.1:8000/conversations/messages -H 'Content-Type: application/json' -H 'X-Actor-ID: demo-user' -H 'X-Actor-Permissions: memory:read,memory:write' -d '{"content":[{"type":"text","text":"Explain what PAA is."}]}'
 ```
 
 The response is a Server-Sent Events stream. `/health` belongs to the local
@@ -105,7 +105,7 @@ python scripts/validate.py \
 The current contract baseline is pinned to:
 
 ```text
-9565154901e57f184bfdd3cef5f23dd4014e2c03
+55707c2627e308eb3458e67db2644c458f95b236
 ```
 
 The shared validator is the external, language-neutral gate. The Python
@@ -114,6 +114,8 @@ publishing a template change.
 
 The included GitHub Actions workflow runs the same checks against the exact
 pinned PAA source on every push and pull request.
+
+The executable checks cover this starter's text-message journey and declared component boundaries. Pinning the full PAA contract set does not by itself certify unimplemented product-specific paths such as production authentication, approval policy, or multimodal provider handling.
 
 ## PAA request flow
 
@@ -146,7 +148,7 @@ Message requests use the PAA public shape:
 
 ```json
 {
-  "content": "Help me plan my finances",
+  "content": [{"type": "text", "text": "Help me plan my finances"}],
   "metadata": {
     "source": "example-client"
   }
@@ -190,7 +192,7 @@ tests/
   unit/           Focused component tests
   integration/    Gateway lifecycle and HTTP tests
   conformance/   Contract and boundary tests
-specs/            Local PAA contract mirror
+contracts/            Local PAA contract mirror
 vendor/           Exact pinned PAA contract source
 ```
 
