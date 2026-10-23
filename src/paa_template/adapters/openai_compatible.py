@@ -8,6 +8,7 @@ types from this boundary.
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 import os
+import re
 from typing import Any
 
 from paa_template.types import CompletionRequest
@@ -52,7 +53,16 @@ class OpenAICompatibleAdapter:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         for chunk in self.transport(f"{base_url.rstrip('/')}/chat/completions", payload, headers):
-            yield ModelStreamChunk(type=chunk.get("type", "text-delta"), delta=dict(chunk.get("delta", {})))
+            delta = dict(chunk.get("delta", {}))
+            if chunk.get("type") == "error":
+                provider_code = delta.get("code")
+                if provider_code in {"model_not_found", "model_unavailable"}:
+                    delta = {"code": "model_unavailable"}
+                elif provider_code in {"unsupported_capability", "capability_unsupported"} and isinstance(delta.get("capability"), str) and re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_.-]{0,63}", delta["capability"]):
+                    delta = {"code": "capability_unsupported", "capability": delta["capability"]}
+                else:
+                    delta = {"code": "provider_error"}
+            yield ModelStreamChunk(type=chunk.get("type", "text-delta"), delta=delta)
 
 
 def message_to_provider(message: Any) -> dict[str, Any]:
