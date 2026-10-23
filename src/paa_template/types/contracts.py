@@ -53,6 +53,7 @@ class ToolDefinition:
     category: Literal["always-send", "discoverable"] | None = None
     mutates_state: bool = False
     required_permissions: tuple[str, ...] = ()
+    source_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -121,14 +122,20 @@ def normalize_tool_definition(value: Any) -> ToolDefinition | None:
     if not isinstance(name, str) or not name.strip():
         return None
     parameters = source.get("parameters")
+    source_identity = record.get("source")
+    source_kind = record.get("source_kind") if isinstance(record.get("source_kind"), str) else None
+    if isinstance(source_identity, Mapping):
+        source_kind = source_identity.get("kind") if isinstance(source_identity.get("kind"), str) and source_identity.get("kind", "").strip() else None
+        source_identity = source_identity.get("id") if isinstance(source_identity.get("id"), str) and source_identity.get("id", "").strip() and source_kind else None
     return ToolDefinition(
         name=name.strip(),
         description=source.get("description", "") if isinstance(source.get("description", ""), str) else "",
         parameters=dict(parameters) if isinstance(parameters, Mapping) else {},
-        source=record.get("source") if isinstance(record.get("source"), str) else None,
+        source=source_identity if isinstance(source_identity, str) else None,
         category=record.get("category") if record.get("category") in {"always-send", "discoverable"} else None,
         mutates_state=record.get("mutates_state") is True,
         required_permissions=tuple(item for item in record.get("required_permissions", ()) if isinstance(item, str)),
+        source_kind=source_kind,
     )
 
 

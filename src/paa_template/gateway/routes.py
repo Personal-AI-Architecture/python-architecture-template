@@ -204,7 +204,12 @@ class Gateway:
         for part in content:
             if not isinstance(part, Mapping) or part.get("type") not in {"text", "image", "file"}:
                 return None
-            if part["type"] == "text" and (not isinstance(part.get("text"), str) or set(part) != {"type", "text"}):
+            if "extensions" in part and not isinstance(part["extensions"], Mapping):
+                return None
+            allowed = {"type", "text", "extensions"} if part["type"] == "text" else {"type", "url", "name", "mime_type", "extensions"}
+            if set(part) - allowed:
+                return None
+            if part["type"] == "text" and not isinstance(part.get("text"), str):
                 return None
             if part["type"] in {"image", "file"} and not isinstance(part.get("url"), str):
                 return None

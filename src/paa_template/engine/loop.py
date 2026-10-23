@@ -1,11 +1,23 @@
 """Provider-neutral Agent Loop."""
 
 from collections.abc import Iterable, Iterator, Mapping
+import re
 from typing import Any
 
 from paa_template.types import CompletionRequest, EngineRequest, EngineStreamEvent, Message, ToolDefinition
 from paa_template.types.contracts import normalize_tool_definition
 from paa_template.types.context import DEFAULT_CONTEXT_LIMITS, context_cost, model_limit
+
+
+def _safe_model_error(data: Mapping[str, Any]) -> dict[str, str]:
+    code = data.get("code")
+    if code == "model_unavailable":
+        return {"code": code, "message": "The selected model is unavailable through the selected provider."}
+    if code == "capability_unsupported":
+        capability = data.get("capability")
+        if isinstance(capability, str) and re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_.-]{0,63}", capability):
+            return {"code": code, "capability": capability, "message": "The selected model does not support the requested capability."}
+    return {"code": "provider_error", "message": "Model provider failed."}
 
 
 class AgentLoop:
@@ -16,6 +28,9 @@ class AgentLoop:
         self.context_limits = context_limits if context_limits is not None else adapter_limits if adapter_limits is not None else DEFAULT_CONTEXT_LIMITS
 
     def run(self, request: EngineRequest) -> Iterator[EngineStreamEvent]:
+        if set(request.auth_context) - {"actor", "authentication_id", "authenticated_at", "expires_at", "correlation_id"}:
+            yield EngineStreamEvent("error", {"code": "auth_error", "message": "Authentication context was rejected."})
+            return
         if not request.metadata.correlation_id.strip():
             yield EngineStreamEvent("error", {"code": "provider_error", "message": "Missing correlation_id."})
             return
@@ -58,7 +73,8 @@ class AgentLoop:
                 elif chunk.type == "tool-result":
                     yield EngineStreamEvent("tool-result", dict(chunk.delta))
                 elif chunk.type == "error":
-                    yield EngineStreamEvent("error", dict(chunk.delta))
+                    yield EngineStreamEvent("error", _safe_model_error(chunk.delta))
+                    return
                 elif chunk.type == "done":
                     yield EngineStreamEvent("done", {"finish_reason": chunk.delta.get("finish_reason", "stop")})
         except Exception:  # adapters must not leak provider diagnostics to clients
