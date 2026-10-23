@@ -38,7 +38,7 @@ def check_lockin() -> list[str]:
                         errors.append(f"EngineRequestMetadata must not include runtime reconfiguration key: {key}")
 
     engine = (SRC / "engine/loop.py").read_text(encoding="utf-8")
-    if "self.tools" not in engine or "CompletionRequest(messages=request.messages, tools=self.tools" not in engine:
+    if "self.tools" not in engine or "CompletionRequest(messages=messages, tools=self.tools" not in engine:
         errors.append("Agent loop must derive the model request tool list from configured tools.")
     if "request.metadata.provider" in engine or "request.metadata.model" in engine:
         errors.append("Agent loop must not read provider or model overrides from request metadata.")

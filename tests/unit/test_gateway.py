@@ -36,7 +36,7 @@ class GatewayTests(unittest.TestCase):
                 seen.append(request.model)
                 yield from super().stream(request)
 
-        gateway = Gateway(AgentLoop(RecordingAdapter()), current_model=lambda: chosen[0])
+        gateway = Gateway(AgentLoop(RecordingAdapter(), context_limits={"local": {"first": 8192, "second": 8192}}), current_model=lambda: chosen[0])
         response = gateway.handle("POST", "/conversations/messages", body={"content": [{"type": "text", "text": "Hi"}]}, headers=self.headers)
         list(response.stream)
         chosen[0] = "second"

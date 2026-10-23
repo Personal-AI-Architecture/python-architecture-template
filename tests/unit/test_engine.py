@@ -13,6 +13,7 @@ class EngineTests(unittest.TestCase):
             messages=(Message("user", "Hi"),),
             metadata=EngineRequestMetadata("corr-1"),
             model="mock",
+            provider="local",
             auth_context={"actor": {"id": "actor-1"}, "correlation_id": "corr-1"},
         )
         events = list(loop.run(request))
@@ -21,7 +22,7 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(events[-1].data["finish_reason"], "stop")
 
     def test_authenticated_context_is_required(self):
-        request = EngineRequest((Message("user", "Hi"),), EngineRequestMetadata("corr-1"), "mock", {})
+        request = EngineRequest((Message("user", "Hi"),), EngineRequestMetadata("corr-1"), "mock", "local", {})
         events = list(AgentLoop(MockAdapter()).run(request))
         self.assertEqual(events[0].event, "error")
 

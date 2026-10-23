@@ -68,7 +68,9 @@ class EngineRequest:
     messages: tuple[CanonicalMessage, ...]
     metadata: EngineRequestMetadata
     model: str
+    provider: str
     auth_context: dict[str, Any]
+    context_summary: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,7 @@ class CompletionRequest:
     tools: tuple[ToolDefinition, ...] = ()
     stream: bool = True
     model: str | None = None
+    provider: str = ""
     max_tokens: int | None = None
     temperature: float | None = None
 

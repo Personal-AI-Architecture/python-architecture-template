@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from paa_template.engine import AgentLoop
 from paa_template.memory.store import MemoryStore
 from paa_template.types import EngineRequest, EngineRequestMetadata, Message
+from paa_template.types.context import model_limit, select_complete_turns
 
 
 @dataclass
@@ -21,6 +22,7 @@ class Conversation:
     created_at: str
     updated_at: str
     messages: list[Message]
+    message_details: list[dict[str, str]]
     title: str | None = None
 
 
@@ -60,7 +62,7 @@ class ConversationStore:
 
     def create(self, metadata: Mapping[str, object] | None = None) -> Conversation:
         timestamp = _now()
-        conversation = Conversation(_new_id("conv"), timestamp, timestamp, [])
+        conversation = Conversation(_new_id("conv"), timestamp, timestamp, [], [])
         self.conversations[conversation.id] = conversation
         self.memory.record("conversation", {"id": conversation.id, "metadata": dict(metadata or {})})
         return conversation
@@ -68,12 +70,18 @@ class ConversationStore:
     def exists(self, conversation_id: str) -> bool:
         return conversation_id in self.conversations
 
-    def append(self, conversation_id: str, message: Message) -> str:
+    def append(self, conversation_id: str, message: Message, *, model: str | None = None, provider: str | None = None) -> str:
         conversation = self.conversations[conversation_id]
         conversation.messages.append(message)
         conversation.updated_at = _now()
         message_id = _new_id("msg")
-        self.memory.record("message", {"id": message_id, "conversation_id": conversation_id, "role": message.role, "content": message.content})
+        detail = {"id": message_id, "created_at": conversation.updated_at}
+        if message.role == "assistant":
+            if not model or not provider:
+                raise ValueError("Assistant replies require model and provider provenance.")
+            detail.update({"model": model, "provider": provider})
+        conversation.message_details.append(detail)
+        self.memory.record("message", {"id": message_id, "conversation_id": conversation_id, "role": message.role, "content": message.content, **detail})
         return message_id
 
     def list(self) -> list[Conversation]:
@@ -81,10 +89,11 @@ class ConversationStore:
 
 
 class Gateway:
-    def __init__(self, engine: AgentLoop, store: ConversationStore | None = None, current_model: Callable[[], str] | None = None) -> None:
+    def __init__(self, engine: AgentLoop, store: ConversationStore | None = None, current_model: Callable[[], str] | None = None, current_provider: Callable[[], str] | None = None) -> None:
         self.engine = engine
         self.store = store or ConversationStore()
         self.current_model = current_model or (lambda: "mock")
+        self.current_provider = current_provider or (lambda: "local")
 
     def handle(
         self,
@@ -129,16 +138,24 @@ class Gateway:
         conversation = self.store.conversations[requested_id] if requested_id else self.store.create(parsed.get("metadata"))
         user_message = Message("user", parsed["content"])
         self.store.append(conversation.id, user_message)
+        model, provider = self.current_model(), self.current_provider()
+        limit = model_limit(self.engine.context_limits, provider, model)
+        if limit is None:
+            return self._error(503, "context_limit_unknown", "No safe context limit for selected provider and model.")
+        selected, omitted = select_complete_turns(tuple(conversation.messages), limit, self.engine.tools)
+        if selected is None:
+            return self._error(422, "context_overflow", "Current message exceeds the selected model context window.")
         metadata = parsed.get("metadata") or {}
         correlation_id = str(metadata.get("correlation_id") or _new_id("corr"))
         engine_request = EngineRequest(
-            messages=tuple(conversation.messages),
+            messages=selected,
             metadata=EngineRequestMetadata(
                 correlation_id=correlation_id,
                 conversation_id=conversation.id,
                 client_context=dict(metadata),
             ),
-            model=self.current_model(),
+            model=model,
+            provider=provider,
             auth_context={
                 "actor": {"id": actor_id, "type": "owner", "display_name": actor_id, "status": "active", "created": _now()},
                 "authentication_id": _new_id("authn"),
@@ -154,11 +171,13 @@ class Gateway:
                 "Connection": "keep-alive",
                 "X-Conversation-ID": conversation.id,
             },
-            stream=self._stream_and_persist(conversation.id, engine_request),
+            stream=self._stream_and_persist(conversation.id, engine_request, omitted),
         )
 
-    def _stream_and_persist(self, conversation_id: str, request: EngineRequest) -> Iterator[dict[str, object]]:
+    def _stream_and_persist(self, conversation_id: str, request: EngineRequest, omitted: int = 0) -> Iterator[dict[str, object]]:
         text_parts: list[str] = []
+        if omitted:
+            yield {"event": "context_notice", "data": {"_event_type": "context_notice", "action": "omitted", "omitted_turn_count": omitted, "message": "Older conversation turns were omitted from this reply's working context."}}
         for event in self.engine.run(request):
             data = dict(event.data)
             if event.event == "text-delta":
@@ -167,7 +186,7 @@ class Gateway:
                 data.setdefault("finish_reason", "stop")
                 data.setdefault("message_id", _new_id("msg"))
                 if text_parts:
-                    self.store.append(conversation_id, Message("assistant", "".join(text_parts)))
+                    self.store.append(conversation_id, Message("assistant", "".join(text_parts)), model=request.model, provider=request.provider)
             data["_event_type"] = event.event
             yield {"event": event.event, "data": data}
 
@@ -202,7 +221,7 @@ class Gateway:
             "id": conversation.id,
             "created_at": conversation.created_at,
             "updated_at": conversation.updated_at,
-            "messages": [{"id": _new_id("msg"), "role": message.role, "content": list(message.parts), "created_at": conversation.updated_at} for message in conversation.messages],
+            "messages": [{"role": message.role, "content": list(message.parts), **detail} for message, detail in zip(conversation.messages, conversation.message_details)],
         }
 
     @staticmethod
