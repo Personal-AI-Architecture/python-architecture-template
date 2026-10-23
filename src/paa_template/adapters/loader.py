@@ -16,7 +16,7 @@ def load_model_adapter(runtime: RuntimeLike, *, openai_compatible: dict[str, Any
         return OpenAICompatibleAdapter(
             api_base_url=str(config.get("api_base_url", "http://localhost/v1")),
             api_key=config.get("api_key"),
-            model=str(config.get("model", "default")),
             transport=config.get("transport"),
+            provider_profiles=config.get("provider_profiles"),
         )
     raise ValueError(f"Unsupported provider adapter: {provider}")
