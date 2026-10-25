@@ -38,6 +38,15 @@ class PAARequestHandler(BaseHTTPRequestHandler):
                     self._write_json(411, {"code": "length_required", "message": "Content-Length required."})
                     return
                 if length > self.max_request_bytes:
+                    # Let an actively uploading client finish a modest body before
+                    # responding, so it can receive the 413 instead of a reset.
+                    if length <= 4 * self.max_request_bytes:
+                        remaining = length
+                        while remaining:
+                            chunk = self.rfile.read(min(remaining, 64 * 1024))
+                            if not chunk:
+                                break
+                            remaining -= len(chunk)
                     self._write_json(413, {"code": "request_too_large", "message": "Request body too large."})
                     self.close_connection = True
                     return
