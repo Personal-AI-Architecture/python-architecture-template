@@ -12,7 +12,7 @@ from paa_template.gateway.server import create_server
 
 class HTTPServerTests(unittest.TestCase):
     def test_health_and_canonical_message_route(self):
-        server = create_server("127.0.0.1", 0, Gateway(AgentLoop(MockAdapter("http-ok"))))
+        server = create_server("127.0.0.1", 0, Gateway(AgentLoop(MockAdapter("http-ok"))), "test-token")
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -24,8 +24,7 @@ class HTTPServerTests(unittest.TestCase):
                 data=json.dumps({"content": [{"type": "text", "text": "Hello"}]}).encode(),
                 headers={
                     "Content-Type": "application/json",
-                    "X-Actor-ID": "http-test",
-                    "X-Actor-Permissions": "memory:read",
+                    "X-API-Key": "test-token",
                 },
                 method="POST",
             )
