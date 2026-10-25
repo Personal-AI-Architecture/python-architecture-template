@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Callable, TypedDict
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from paa_template.engine import AgentLoop
 from paa_template.memory.store import MemoryStore
@@ -56,15 +58,35 @@ def _header(headers: Mapping[str, str], name: str) -> str | None:
 
 
 class ConversationStore:
-    def __init__(self, memory: MemoryStore | None = None) -> None:
+    def __init__(self, memory: MemoryStore | None = None, persistence_path: str | None = None) -> None:
         self.memory = memory or MemoryStore()
         self.conversations: dict[str, Conversation] = {}
+        self.persistence_path = Path(persistence_path) if persistence_path else None
+        if self.persistence_path and self.persistence_path.exists():
+            saved = json.loads(self.persistence_path.read_text(encoding="utf-8"))
+            for item in saved.get("conversations", []):
+                messages = [Message(entry["role"], tuple(entry["content"])) for entry in item["messages"]]
+                conversation = Conversation(item["id"], item["created_at"], item["updated_at"], messages, item["message_details"], item.get("title"))
+                self.conversations[conversation.id] = conversation
+
+    def _save(self) -> None:
+        if self.persistence_path is None:
+            return
+        self.persistence_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"conversations": [{"id": item.id, "created_at": item.created_at, "updated_at": item.updated_at,
+                                      "messages": [{"role": message.role, "content": list(message.parts)} for message in item.messages],
+                                      "message_details": item.message_details, "title": item.title}
+                                     for item in self.conversations.values()]}
+        temporary = self.persistence_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(temporary, self.persistence_path)
 
     def create(self, metadata: Mapping[str, object] | None = None) -> Conversation:
         timestamp = _now()
         conversation = Conversation(_new_id("conv"), timestamp, timestamp, [], [])
         self.conversations[conversation.id] = conversation
         self.memory.record("conversation", {"id": conversation.id, "metadata": dict(metadata or {})})
+        self._save()
         return conversation
 
     def exists(self, conversation_id: str) -> bool:
@@ -82,6 +104,7 @@ class ConversationStore:
             detail.update({"model": model, "provider": provider})
         conversation.message_details.append(detail)
         self.memory.record("message", {"id": message_id, "conversation_id": conversation_id, "role": message.role, "content": message.content, **detail})
+        self._save()
         return message_id
 
     def list(self) -> list[Conversation]:
@@ -104,12 +127,29 @@ class Gateway:
         headers: Mapping[str, str] | None = None,
     ) -> GatewayResponse:
         method = method.upper()
-        route = urlsplit(path).path
+        parsed_url = urlsplit(path)
+        route = parsed_url.path
         if method == "GET" and route == "/conversations":
-            conversations = self.store.list()
+            query = parse_qs(parsed_url.query)
+            try:
+                limit = int(query.get("limit", ["20"])[0])
+                offset = int(query.get("offset", ["0"])[0])
+                if not 1 <= limit <= 100 or offset < 0:
+                    raise ValueError("Invalid pagination")
+                after = datetime.fromisoformat(query["from"][0].replace("Z", "+00:00")) if "from" in query else None
+                before = datetime.fromisoformat(query["to"][0].replace("Z", "+00:00")) if "to" in query else None
+            except (ValueError, KeyError):
+                return self._error(400, "invalid_request", "Invalid conversation filter.")
+            search = query.get("search", [""])[0].lower()
+            conversations = [item for item in self.store.list()
+                             if (not search or search in (json.dumps([message.content for message in item.messages]) + (item.title or "")).lower())
+                             and (after is None or datetime.fromisoformat(item.created_at) >= after)
+                             and (before is None or datetime.fromisoformat(item.created_at) <= before)]
             return GatewayResponse(200, {"Content-Type": "application/json"}, {
-                "conversations": [self._summary(item) for item in conversations],
+                "conversations": [self._summary(item) for item in conversations[offset:offset + limit]],
                 "total": len(conversations),
+                "limit": limit,
+                "offset": offset,
             })
         if method == "GET" and route.startswith("/conversations/"):
             conversation_id = route.split("/")[2]
@@ -184,9 +224,7 @@ class Gateway:
                 text_parts.append(str(data.get("content", "")))
             if event.event == "done":
                 data.setdefault("finish_reason", "stop")
-                data.setdefault("message_id", _new_id("msg"))
-                if text_parts:
-                    self.store.append(conversation_id, Message("assistant", "".join(text_parts)), model=request.model, provider=request.provider)
+                data["message_id"] = self.store.append(conversation_id, Message("assistant", "".join(text_parts)), model=request.model, provider=request.provider)
             data["_event_type"] = event.event
             yield {"event": event.event, "data": data}
 

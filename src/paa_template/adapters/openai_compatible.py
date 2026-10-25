@@ -9,6 +9,8 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 import os
 import re
+import json
+from urllib.request import Request, urlopen
 from typing import Any
 
 from paa_template.types import CompletionRequest
@@ -28,8 +30,6 @@ class OpenAICompatibleAdapter:
         return {name: dict(profile.get("model_context_limits", {})) for name, profile in (self.provider_profiles or {}).items()}
 
     def stream(self, request: CompletionRequest) -> Iterator[ModelStreamChunk]:
-        if self.transport is None:
-            raise RuntimeError("OpenAI-compatible adapter requires an injected transport in this template.")
         if not request.model or not request.model.strip() or not request.provider.strip():
             raise ValueError("Model API request requires model and provider.")
         profiles = self.provider_profiles or {"local": {"base_url": self.api_base_url, "api_key": self.api_key}}
@@ -52,7 +52,8 @@ class OpenAICompatibleAdapter:
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        for chunk in self.transport(f"{base_url.rstrip('/')}/chat/completions", payload, headers):
+        transport = self.transport or _http_transport
+        for chunk in transport(f"{base_url.rstrip('/')}/chat/completions", payload, headers):
             delta = dict(chunk.get("delta", {}))
             if chunk.get("type") == "error":
                 provider_code = delta.get("code")
@@ -63,6 +64,34 @@ class OpenAICompatibleAdapter:
                 else:
                     delta = {"code": "provider_error"}
             yield ModelStreamChunk(type=chunk.get("type", "text-delta"), delta=delta)
+
+
+def _http_transport(url: str, payload: dict[str, Any], headers: dict[str, str]) -> Iterator[dict[str, Any]]:
+    request = Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+    with urlopen(request, timeout=30) as response:
+        completed = False
+        for raw_line in response:
+            line = raw_line.decode("utf-8").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                if not completed:
+                    yield {"type": "done", "delta": {"finish_reason": "stop"}}
+                return
+            if not data:
+                continue
+            event = json.loads(data)
+            choices = event.get("choices", [])
+            if not choices:
+                continue
+            choice = choices[0]
+            content = choice.get("delta", {}).get("content")
+            if isinstance(content, str) and content:
+                yield {"type": "text-delta", "delta": {"content": content}}
+            if choice.get("finish_reason"):
+                completed = True
+                yield {"type": "done", "delta": {"finish_reason": choice["finish_reason"]}}
 
 
 def message_to_provider(message: Any) -> dict[str, Any]:

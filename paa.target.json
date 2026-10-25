@@ -2,6 +2,7 @@
   "name": "python-architecture-template",
   "language": "python",
   "root": ".",
+  "live": { "start": "python scripts/run_server.py --host $PAA_HOST --port $PAA_PORT" },
   "contracts": {
     "lock_file": "paa.lock.json"
   },
