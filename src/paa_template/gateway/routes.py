@@ -112,11 +112,12 @@ class ConversationStore:
 
 
 class Gateway:
-    def __init__(self, engine: AgentLoop, store: ConversationStore | None = None, current_model: Callable[[], str] | None = None, current_provider: Callable[[], str] | None = None) -> None:
+    def __init__(self, engine: AgentLoop, store: ConversationStore | None = None, current_model: Callable[[], str] | None = None, current_provider: Callable[[], str] | None = None, current_selection: Callable[[], tuple[str, str]] | None = None) -> None:
         self.engine = engine
         self.store = store or ConversationStore()
         self.current_model = current_model or (lambda: "mock")
         self.current_provider = current_provider or (lambda: "local")
+        self.current_selection = current_selection
 
     def handle(
         self,
@@ -175,13 +176,18 @@ class Gateway:
         if requested_id is not None and not self.store.exists(requested_id):
             return self._error(404, "conversation_not_found", f"Conversation {requested_id} was not found.")
 
-        conversation = self.store.conversations[requested_id] if requested_id else self.store.create(parsed.get("metadata"))
-        user_message = Message("user", parsed["content"])
-        self.store.append(conversation.id, user_message)
-        model, provider = self.current_model(), self.current_provider()
+        try:
+            model, provider = self.current_selection() if self.current_selection else (self.current_model(), self.current_provider())
+            if not model or not provider:
+                raise ValueError("Missing model or provider preference")
+        except (ValueError, OSError):
+            return self._error(503, "selection_unavailable", "Current model and provider preferences are unavailable.")
         limit = model_limit(self.engine.context_limits, provider, model)
         if limit is None:
             return self._error(503, "context_limit_unknown", "No safe context limit for selected provider and model.")
+        conversation = self.store.conversations[requested_id] if requested_id else self.store.create(parsed.get("metadata"))
+        user_message = Message("user", parsed["content"])
+        self.store.append(conversation.id, user_message)
         selected, omitted = select_complete_turns(tuple(conversation.messages), limit, self.engine.tools)
         if selected is None:
             return self._error(422, "context_overflow", "Current message exceeds the selected model context window.")

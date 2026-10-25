@@ -22,6 +22,9 @@ class PAARequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         self._dispatch("POST")
 
+    def do_PUT(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+        self._dispatch("PUT")
+
     def _dispatch(self, method: str) -> None:
         supplied = self.headers.get("X-API-Key", "")
         authorization = self.headers.get("Authorization", "")
@@ -31,7 +34,7 @@ class PAARequestHandler(BaseHTTPRequestHandler):
             self._write_json(401, {"code": "unauthenticated", "message": "Authentication required."})
             return
         body: object | None = None
-        if method == "POST":
+        if method in {"POST", "PUT"}:
             try:
                 length = int(self.headers.get("Content-Length", "-1"))
                 if length < 0:
@@ -54,6 +57,26 @@ class PAARequestHandler(BaseHTTPRequestHandler):
             except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
                 body = None
         headers = {"X-Actor-ID": "local-owner", "X-Actor-Permissions": "memory:read,memory:write"}
+        if self.path == "/owner/preferences":
+            memory = self.gateway.store.memory
+            if method == "GET":
+                try:
+                    value = memory.read_preferences()
+                except (OSError, ValueError):
+                    value = None
+                self._write_json(200 if value else 503, value or {"code": "selection_unavailable", "message": "Preferences unavailable."})
+                return
+            if method == "PUT":
+                if not isinstance(body, dict) or not isinstance(body.get("model"), str) or not body["model"] or not isinstance(body.get("active_provider_profile"), str) or not body["active_provider_profile"]:
+                    self._write_json(400, {"code": "invalid_request", "message": "Model and active_provider_profile are required."})
+                    return
+                try:
+                    memory.write_preferences(body["model"], body["active_provider_profile"])
+                except (OSError, ValueError):
+                    self._write_json(503, {"code": "selection_unavailable", "message": "Preferences unavailable."})
+                    return
+                self._write_json(200, body)
+                return
         response = self.gateway.handle(method, self.path, body=body, headers=headers)
         if response.stream is not None:
             self.send_response(response.status)
