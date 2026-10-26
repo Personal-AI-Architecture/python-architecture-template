@@ -16,7 +16,7 @@ if str(SRC) not in sys.path:
 
 from paa_template.adapters.loader import load_model_adapter  # noqa: E402
 from paa_template.config.runtime import load_runtime_configuration  # noqa: E402
-from paa_template.engine import AgentLoop  # noqa: E402
+from paa_template.agent_loop import AgentLoop  # noqa: E402
 from paa_template.gateway import Gateway  # noqa: E402
 from paa_template.gateway.routes import ConversationStore  # noqa: E402
 from paa_template.memory.store import MemoryStore  # noqa: E402

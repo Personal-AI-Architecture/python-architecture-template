@@ -1,4 +1,4 @@
-"""Adapter-local typing helpers kept out of the engine boundary."""
+"""Adapter-local typing helpers kept out of the Agent Loop boundary."""
 
 from typing import Protocol
 

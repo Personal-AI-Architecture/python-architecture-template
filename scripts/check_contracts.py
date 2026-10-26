@@ -38,7 +38,7 @@ REQUIRED_SCHEMAS = {
 def check_contracts() -> list[str]:
     errors = contract_errors()
     gateway = (ROOT / "contracts/openapi/gateway-api.yaml").read_text(encoding="utf-8")
-    engine = (ROOT / "contracts/openapi/gateway-engine.yaml").read_text(encoding="utf-8")
+    agent_loop = (ROOT / "contracts/openapi/gateway-agent-loop.yaml").read_text(encoding="utf-8")
     model = (ROOT / "contracts/openapi/model-api.yaml").read_text(encoding="utf-8")
     for route in REQUIRED_ROUTES:
         if f"  {route}:" not in gateway:
@@ -49,7 +49,7 @@ def check_contracts() -> list[str]:
         if f"    {marker}:" not in gateway:
             errors.append(f"Gateway schema is missing: {marker}.")
     for marker in ["/agent-loop/chat:", "AgentLoopRequest:", "RequestMetadata:", "SSEStream:", "auth_context:"]:
-        if marker not in engine:
+        if marker not in agent_loop:
             errors.append(f"Gateway-Agent Loop contract is missing: {marker}.")
     for marker in ["/completions:", "CompletionRequest:", "CompletionStream:"]:
         if marker not in model:

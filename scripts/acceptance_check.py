@@ -13,10 +13,10 @@ if str(SRC) not in sys.path:
 
 from paa_template.adapters import MockAdapter, load_model_adapter  # noqa: E402
 from paa_template.config import RuntimeConfiguration, load_runtime_configuration  # noqa: E402
-from paa_template.engine import AgentLoop  # noqa: E402
+from paa_template.agent_loop import AgentLoop  # noqa: E402
 from paa_template.gateway import Gateway  # noqa: E402
 from paa_template.memory import MemoryStore  # noqa: E402
-from paa_template.types import EngineRequest, EngineRequestMetadata, Message  # noqa: E402
+from paa_template.types import AgentLoopRequest, AgentLoopRequestMetadata, Message  # noqa: E402
 from check_contracts import check_contracts  # noqa: E402
 from check_imports import check_imports  # noqa: E402
 from check_lockin import check_lockin  # noqa: E402

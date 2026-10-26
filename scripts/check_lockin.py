@@ -12,7 +12,7 @@ REQUIRED_FILES = [
     "src/paa_template/adapters/loader.py",
     "src/paa_template/adapters/mock.py",
     "src/paa_template/adapters/openai_compatible.py",
-    "src/paa_template/engine/loop.py",
+    "src/paa_template/agent_loop/loop.py",
     "src/paa_template/types/contracts.py",
 ]
 PROVIDER_TOKENS = ["/chat/completions", "api_base_url", "api_key", "openai-compatible"]
@@ -26,21 +26,21 @@ def check_lockin() -> list[str]:
             errors.append(f"Missing required file: {relative}")
 
     contracts = (SRC / "types/contracts.py").read_text(encoding="utf-8")
-    if "class EngineRequestMetadata" not in contracts:
-        errors.append("EngineRequestMetadata contract is missing.")
+    if "class AgentLoopRequestMetadata" not in contracts:
+        errors.append("AgentLoopRequestMetadata contract is missing.")
     else:
         tree = ast.parse(contracts)
         for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and node.name == "EngineRequestMetadata":
+            if isinstance(node, ast.ClassDef) and node.name == "AgentLoopRequestMetadata":
                 fields = {item.target.id for item in node.body if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)}
                 for key in FORBIDDEN_METADATA:
                     if key in fields:
-                        errors.append(f"EngineRequestMetadata must not include runtime reconfiguration key: {key}")
+                        errors.append(f"AgentLoopRequestMetadata must not include runtime reconfiguration key: {key}")
 
-    engine = (SRC / "engine/loop.py").read_text(encoding="utf-8")
-    if "self.tools" not in engine or "CompletionRequest(messages=messages, tools=self.tools" not in engine:
+    agent_loop = (SRC / "agent_loop/loop.py").read_text(encoding="utf-8")
+    if "self.tools" not in agent_loop or "CompletionRequest(messages=messages, tools=self.tools" not in agent_loop:
         errors.append("Agent loop must derive the model request tool list from configured tools.")
-    if "request.metadata.provider" in engine or "request.metadata.model" in engine:
+    if "request.metadata.provider" in agent_loop or "request.metadata.model" in agent_loop:
         errors.append("Agent loop must not read provider or model overrides from request metadata.")
 
     for path in SRC.rglob("*.py"):

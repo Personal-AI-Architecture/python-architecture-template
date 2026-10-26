@@ -5,7 +5,7 @@ from urllib.request import Request, urlopen
 
 from tests import bootstrap  # noqa: F401
 from paa_template.adapters import MockAdapter
-from paa_template.engine import AgentLoop
+from paa_template.agent_loop import AgentLoop
 from paa_template.gateway import Gateway
 from paa_template.gateway.server import create_server
 
