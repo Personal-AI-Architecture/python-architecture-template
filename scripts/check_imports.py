@@ -9,12 +9,12 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src/paa_template"
-COMPONENTS = {"auth", "gateway", "engine", "memory", "adapters", "config", "types"}
+COMPONENTS = {"auth", "gateway", "agent_loop", "memory", "adapters", "config", "types"}
 STDLIB = set(getattr(sys, "stdlib_module_names", ())) | {"__future__"}
 ALLOWED = {
     "auth": {"auth", "types"},
-    "gateway": {"gateway", "types", "engine", "memory"},
-    "engine": {"engine", "types"},
+    "gateway": {"gateway", "types", "agent_loop", "memory"},
+    "agent_loop": {"agent_loop", "types"},
     "memory": {"memory", "types"},
     "adapters": {"adapters", "types"},
     "config": {"config", "types"},

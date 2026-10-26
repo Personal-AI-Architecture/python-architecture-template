@@ -57,7 +57,7 @@ class ToolDefinition:
 
 
 @dataclass(frozen=True)
-class EngineRequestMetadata:
+class AgentLoopRequestMetadata:
     correlation_id: str
     conversation_id: str | None = None
     trigger: str | None = None
@@ -65,9 +65,9 @@ class EngineRequestMetadata:
 
 
 @dataclass(frozen=True)
-class EngineRequest:
+class AgentLoopRequest:
     messages: tuple[CanonicalMessage, ...]
-    metadata: EngineRequestMetadata
+    metadata: AgentLoopRequestMetadata
     model: str
     provider: str
     auth_context: dict[str, Any]
@@ -86,12 +86,12 @@ class CompletionRequest:
 
 
 @dataclass(frozen=True)
-class EngineStreamEvent:
+class AgentLoopStreamEvent:
     event: Literal["text-delta", "tool-call", "tool-result", "done", "error"]
     data: dict[str, Any] = field(default_factory=dict)
 
 
-GatewayStreamEvent = EngineStreamEvent
+GatewayStreamEvent = AgentLoopStreamEvent
 
 
 def _mapping(value: Any) -> Mapping[str, Any] | None:

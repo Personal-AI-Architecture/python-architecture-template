@@ -1,11 +1,11 @@
-"""Canonical PAA message, tool, engine, and stream types."""
+"""Canonical PAA message, tool, Agent Loop, and stream types."""
 
 from .contracts import (
     CanonicalMessage,
     CompletionRequest,
-    EngineRequest,
-    EngineRequestMetadata,
-    EngineStreamEvent,
+    AgentLoopRequest,
+    AgentLoopRequestMetadata,
+    AgentLoopStreamEvent,
     GatewayStreamEvent,
     Message,
     ToolCall,
@@ -17,9 +17,9 @@ from .contracts import (
 __all__ = [
     "CanonicalMessage",
     "CompletionRequest",
-    "EngineRequest",
-    "EngineRequestMetadata",
-    "EngineStreamEvent",
+    "AgentLoopRequest",
+    "AgentLoopRequestMetadata",
+    "AgentLoopStreamEvent",
     "GatewayStreamEvent",
     "Message",
     "ToolCall",

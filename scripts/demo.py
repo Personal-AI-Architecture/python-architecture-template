@@ -13,7 +13,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from paa_template.adapters import MockAdapter  # noqa: E402
-from paa_template.engine import AgentLoop  # noqa: E402
+from paa_template.agent_loop import AgentLoop  # noqa: E402
 from paa_template.gateway import Gateway  # noqa: E402
 
 

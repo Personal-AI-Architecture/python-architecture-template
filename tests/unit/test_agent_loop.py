@@ -2,16 +2,16 @@ import unittest
 
 from tests import bootstrap  # noqa: F401
 from paa_template.adapters import MockAdapter
-from paa_template.engine import AgentLoop
-from paa_template.types import EngineRequest, EngineRequestMetadata, Message
+from paa_template.agent_loop import AgentLoop
+from paa_template.types import AgentLoopRequest, AgentLoopRequestMetadata, Message
 
 
-class EngineTests(unittest.TestCase):
+class AgentLoopTests(unittest.TestCase):
     def test_agent_loop_emits_paa_stream_events(self):
         loop = AgentLoop(MockAdapter("hello"))
-        request = EngineRequest(
+        request = AgentLoopRequest(
             messages=(Message("user", "Hi"),),
-            metadata=EngineRequestMetadata("corr-1"),
+            metadata=AgentLoopRequestMetadata("corr-1"),
             model="mock",
             provider="local",
             auth_context={"actor": {"id": "actor-1"}, "correlation_id": "corr-1"},
@@ -22,7 +22,7 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(events[-1].data["finish_reason"], "stop")
 
     def test_authenticated_context_is_required(self):
-        request = EngineRequest((Message("user", "Hi"),), EngineRequestMetadata("corr-1"), "mock", "local", {})
+        request = AgentLoopRequest((Message("user", "Hi"),), AgentLoopRequestMetadata("corr-1"), "mock", "local", {})
         events = list(AgentLoop(MockAdapter()).run(request))
         self.assertEqual(events[0].event, "error")
 

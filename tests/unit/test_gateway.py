@@ -2,7 +2,7 @@ import unittest
 
 from tests import bootstrap  # noqa: F401
 from paa_template.adapters import MockAdapter
-from paa_template.engine import AgentLoop
+from paa_template.agent_loop import AgentLoop
 from paa_template.gateway import Gateway
 from paa_template.adapters.mock import ModelStreamChunk
 
@@ -13,8 +13,8 @@ class GatewayTests(unittest.TestCase):
         self.headers = {"X-Actor-ID": "actor-1", "X-Actor-Permissions": "memory:read,memory:write"}
 
     def test_auth_context_rejects_unknown_top_level_field(self):
-        from paa_template.types.contracts import EngineRequest, EngineRequestMetadata
-        request = EngineRequest(messages=(), metadata=EngineRequestMetadata(correlation_id="corr"), model="mock", provider="local", auth_context={"actor": {"id": "owner"}, "correlation_id": "corr", "unexpected": "spoof"})
+        from paa_template.types.contracts import AgentLoopRequest, AgentLoopRequestMetadata
+        request = AgentLoopRequest(messages=(), metadata=AgentLoopRequestMetadata(correlation_id="corr"), model="mock", provider="local", auth_context={"actor": {"id": "owner"}, "correlation_id": "corr", "unexpected": "spoof"})
         events = list(AgentLoop(MockAdapter()).run(request))
         self.assertEqual([event.event for event in events], ["error"])
         self.assertEqual(events[0].data["code"], "auth_error")

@@ -12,9 +12,9 @@ from datetime import datetime, timezone
 from typing import Callable, TypedDict
 from urllib.parse import parse_qs, urlsplit
 
-from paa_template.engine import AgentLoop
+from paa_template.agent_loop import AgentLoop
 from paa_template.memory.store import MemoryStore
-from paa_template.types import EngineRequest, EngineRequestMetadata, Message
+from paa_template.types import AgentLoopRequest, AgentLoopRequestMetadata, Message
 from paa_template.types.context import model_limit, select_complete_turns
 
 
@@ -112,8 +112,8 @@ class ConversationStore:
 
 
 class Gateway:
-    def __init__(self, engine: AgentLoop, store: ConversationStore | None = None, current_model: Callable[[], str] | None = None, current_provider: Callable[[], str] | None = None, current_selection: Callable[[], tuple[str, str]] | None = None) -> None:
-        self.engine = engine
+    def __init__(self, agent_loop: AgentLoop, store: ConversationStore | None = None, current_model: Callable[[], str] | None = None, current_provider: Callable[[], str] | None = None, current_selection: Callable[[], tuple[str, str]] | None = None) -> None:
+        self.agent_loop = agent_loop
         self.store = store or ConversationStore()
         self.current_model = current_model or (lambda: "mock")
         self.current_provider = current_provider or (lambda: "local")
@@ -182,20 +182,20 @@ class Gateway:
                 raise ValueError("Missing model or provider preference")
         except (ValueError, OSError):
             return self._error(503, "selection_unavailable", "Current model and provider preferences are unavailable.")
-        limit = model_limit(self.engine.context_limits, provider, model)
+        limit = model_limit(self.agent_loop.context_limits, provider, model)
         if limit is None:
             return self._error(503, "context_limit_unknown", "No safe context limit for selected provider and model.")
         conversation = self.store.conversations[requested_id] if requested_id else self.store.create(parsed.get("metadata"))
         user_message = Message("user", parsed["content"])
         self.store.append(conversation.id, user_message)
-        selected, omitted = select_complete_turns(tuple(conversation.messages), limit, self.engine.tools)
+        selected, omitted = select_complete_turns(tuple(conversation.messages), limit, self.agent_loop.tools)
         if selected is None:
             return self._error(422, "context_overflow", "Current message exceeds the selected model context window.")
         metadata = parsed.get("metadata") or {}
         correlation_id = str(metadata.get("correlation_id") or _new_id("corr"))
-        engine_request = EngineRequest(
+        agent_loop_request = AgentLoopRequest(
             messages=selected,
-            metadata=EngineRequestMetadata(
+            metadata=AgentLoopRequestMetadata(
                 correlation_id=correlation_id,
                 conversation_id=conversation.id,
                 client_context=dict(metadata),
@@ -217,14 +217,14 @@ class Gateway:
                 "Connection": "keep-alive",
                 "X-Conversation-ID": conversation.id,
             },
-            stream=self._stream_and_persist(conversation.id, engine_request, omitted),
+            stream=self._stream_and_persist(conversation.id, agent_loop_request, omitted),
         )
 
-    def _stream_and_persist(self, conversation_id: str, request: EngineRequest, omitted: int = 0) -> Iterator[dict[str, object]]:
+    def _stream_and_persist(self, conversation_id: str, request: AgentLoopRequest, omitted: int = 0) -> Iterator[dict[str, object]]:
         text_parts: list[str] = []
         if omitted:
             yield {"event": "context_notice", "data": {"_event_type": "context_notice", "action": "omitted", "omitted_turn_count": omitted, "message": "Older conversation turns were omitted from this reply's working context."}}
-        for event in self.engine.run(request):
+        for event in self.agent_loop.run(request):
             data = dict(event.data)
             if event.event == "text-delta":
                 text_parts.append(str(data.get("content", "")))

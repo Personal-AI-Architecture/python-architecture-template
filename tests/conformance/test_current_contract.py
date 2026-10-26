@@ -2,9 +2,9 @@ import unittest
 
 from tests import bootstrap  # noqa: F401
 from paa_template.adapters import MockAdapter, OpenAICompatibleAdapter
-from paa_template.engine import AgentLoop
+from paa_template.agent_loop import AgentLoop
 from paa_template.gateway import Gateway
-from paa_template.types import CompletionRequest, EngineRequest, EngineRequestMetadata, Message
+from paa_template.types import CompletionRequest, AgentLoopRequest, AgentLoopRequestMetadata, Message
 
 
 HEADERS = {"X-Actor-ID": "owner", "X-Actor-Permissions": "memory:read,memory:write"}
@@ -62,14 +62,14 @@ class CurrentContractTests(unittest.TestCase):
     def test_agent_loop_checks_actual_request(self):
         adapter = RecordingAdapter()
         loop = AgentLoop(adapter, context_limits={"local": {"mock": 512}})
-        request = EngineRequest((Message("user", "x" * 1000),), EngineRequestMetadata("corr"), "mock", "local", {"actor": {"id": "owner"}, "correlation_id": "corr"})
+        request = AgentLoopRequest((Message("user", "x" * 1000),), AgentLoopRequestMetadata("corr"), "mock", "local", {"actor": {"id": "owner"}, "correlation_id": "corr"})
         self.assertEqual(list(loop.run(request))[0].data["code"], "context_overflow")
         self.assertEqual(adapter.requests, [])
 
     def test_derived_summary_is_ephemeral_and_labelled(self):
         adapter = RecordingAdapter()
         original = (Message("user", "current"),)
-        request = EngineRequest(original, EngineRequestMetadata("corr"), "mock", "local", {"actor": {"id": "owner"}, "correlation_id": "corr"}, {"source": "gateway", "method": "deterministic", "omitted_turn_count": 1, "text": "older fact"})
+        request = AgentLoopRequest(original, AgentLoopRequestMetadata("corr"), "mock", "local", {"actor": {"id": "owner"}, "correlation_id": "corr"}, {"source": "gateway", "method": "deterministic", "omitted_turn_count": 1, "text": "older fact"})
         list(AgentLoop(adapter).run(request))
         self.assertEqual(len(original), 1)
         self.assertEqual(len(adapter.requests[0].messages), 2)
