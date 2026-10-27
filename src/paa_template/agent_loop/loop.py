@@ -20,6 +20,25 @@ def _safe_model_error(data: Mapping[str, Any]) -> dict[str, str]:
     return {"code": "provider_error", "message": "Model provider failed."}
 
 
+def _source_id_for_tool(name: str, tools: tuple[ToolDefinition, ...]) -> str:
+    configured = next((tool for tool in tools if tool.name == name and tool.source), None)
+    if configured and configured.source:
+        return configured.source.strip()
+    match = re.match(r"^([a-z0-9]+)[_:-]", name.strip(), re.IGNORECASE)
+    return match.group(1) if match else "internal"
+
+
+def _serialize_tool_output(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    import json
+
+    try:
+        return json.dumps(value, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return str(value)
+
+
 class AgentLoop:
     def __init__(self, model_adapter: Any, tools: Iterable[ToolDefinition] = (), context_limits: Mapping[str, Mapping[str, int]] | None = None) -> None:
         self.model_adapter = model_adapter
@@ -69,9 +88,28 @@ class AgentLoop:
                     if content:
                         yield AgentLoopStreamEvent("text-delta", {"content": content})
                 elif chunk.type == "tool-call":
-                    yield AgentLoopStreamEvent("tool-call", dict(chunk.delta))
+                    data = dict(chunk.delta)
+                    normalized = dict(data)
+                    if not normalized.get("source_id"):
+                        name = data.get("name")
+                        function = data.get("function")
+                        if not isinstance(name, str) and isinstance(function, Mapping):
+                            name = function.get("name")
+                        normalized["source_id"] = _source_id_for_tool(name if isinstance(name, str) else "", self.tools)
+                    call = normalized.get("function") if isinstance(normalized.get("function"), Mapping) else normalized
+                    name = call.get("name") if isinstance(call, Mapping) else None
+                    if isinstance(name, str):
+                        from paa_template.types.contracts import normalize_tool_call
+
+                        parsed = normalize_tool_call(normalized)
+                        if parsed is not None:
+                            normalized.update({"id": parsed.id, "name": parsed.name, "arguments": parsed.arguments})
+                    yield AgentLoopStreamEvent("tool-call", normalized)
                 elif chunk.type == "tool-result":
-                    yield AgentLoopStreamEvent("tool-result", dict(chunk.delta))
+                    data = dict(chunk.delta)
+                    if "output" in data:
+                        data["output"] = _serialize_tool_output(data["output"])
+                    yield AgentLoopStreamEvent("tool-result", data)
                 elif chunk.type == "error":
                     yield AgentLoopStreamEvent("error", _safe_model_error(chunk.delta))
                     return

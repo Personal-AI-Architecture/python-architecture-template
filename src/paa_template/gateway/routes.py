@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from paa_template.agent_loop import AgentLoop
 from paa_template.memory.store import MemoryStore
-from paa_template.types import AgentLoopRequest, AgentLoopRequestMetadata, Message
+from paa_template.types import AgentLoopRequest, AgentLoopRequestMetadata, Message, ToolCall
 from paa_template.types.context import model_limit, select_complete_turns
 
 
@@ -65,7 +65,15 @@ class ConversationStore:
         if self.persistence_path and self.persistence_path.exists():
             saved = json.loads(self.persistence_path.read_text(encoding="utf-8"))
             for item in saved.get("conversations", []):
-                messages = [Message(entry["role"], tuple(entry["content"])) for entry in item["messages"]]
+                messages = [
+                    Message(
+                        entry["role"],
+                        tuple(entry["content"]),
+                        tuple(ToolCall(call["id"], call["name"], dict(call.get("arguments", {})), call.get("source_id")) for call in entry.get("tool_calls", [])),
+                        entry.get("tool_call_id"),
+                    )
+                    for entry in item["messages"]
+                ]
                 conversation = Conversation(item["id"], item["created_at"], item["updated_at"], messages, item["message_details"], item.get("title"))
                 self.conversations[conversation.id] = conversation
 
@@ -74,7 +82,9 @@ class ConversationStore:
             return
         self.persistence_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"conversations": [{"id": item.id, "created_at": item.created_at, "updated_at": item.updated_at,
-                                      "messages": [{"role": message.role, "content": list(message.parts)} for message in item.messages],
+                                      "messages": [{"role": message.role, "content": list(message.parts),
+                                                    "tool_calls": [{"id": call.id, "name": call.name, "arguments": call.arguments, "source_id": call.source_id} for call in message.tool_calls],
+                                                    "tool_call_id": message.tool_call_id} for message in item.messages],
                                       "message_details": item.message_details, "title": item.title}
                                      for item in self.conversations.values()]}
         temporary = self.persistence_path.with_suffix(".tmp")
@@ -222,15 +232,72 @@ class Gateway:
 
     def _stream_and_persist(self, conversation_id: str, request: AgentLoopRequest, omitted: int = 0) -> Iterator[dict[str, object]]:
         text_parts: list[str] = []
+        assistant_parts: list[dict[str, object]] = []
+        tool_calls: dict[str, ToolCall] = {}
+        last_message_id: str | None = None
+
+        def append_text(value: str) -> None:
+            if not value:
+                return
+            if assistant_parts and assistant_parts[-1].get("type") == "text":
+                assistant_parts[-1]["text"] = str(assistant_parts[-1].get("text", "")) + value
+            else:
+                assistant_parts.append({"type": "text", "text": value})
+
+        def flush_assistant() -> None:
+            nonlocal last_message_id
+            if not assistant_parts and not tool_calls:
+                return
+            calls = tuple(tool_calls.values())
+            last_message_id = self.store.append(
+                conversation_id,
+                Message("assistant", tuple(assistant_parts), calls),
+                model=request.model,
+                provider=request.provider,
+            )
+            assistant_parts.clear()
+            tool_calls.clear()
+
+        def parse_result(value: object) -> object:
+            if not isinstance(value, str):
+                return value
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return value
+
         if omitted:
             yield {"event": "context_notice", "data": {"_event_type": "context_notice", "action": "omitted", "omitted_turn_count": omitted, "message": "Older conversation turns were omitted from this reply's working context."}}
         for event in self.agent_loop.run(request):
             data = dict(event.data)
             if event.event == "text-delta":
-                text_parts.append(str(data.get("content", "")))
+                text = str(data.get("content", ""))
+                text_parts.append(text)
+                append_text(text)
+            elif event.event == "tool-call":
+                call_id = str(data.get("id", ""))
+                name = str(data.get("name", ""))
+                source_id = str(data.get("source_id", "internal"))
+                arguments = data.get("arguments", {})
+                if call_id and name:
+                    call = ToolCall(call_id, name, dict(arguments) if isinstance(arguments, Mapping) else {}, source_id)
+                    tool_calls[call_id] = call
+                    assistant_parts[:] = [part for part in assistant_parts if not (part.get("type") == "tool_call" and part.get("id") == call_id)]
+                    assistant_parts.append({"type": "tool_call", "id": call_id, "source_id": source_id, "name": name, "arguments": call.arguments})
+            elif event.event == "tool-result":
+                flush_assistant()
+                call_id = str(data.get("id", ""))
+                if call_id:
+                    is_error = bool(data.get("error"))
+                    result = data.get("error") if is_error else parse_result(data.get("output", ""))
+                    last_message_id = self.store.append(conversation_id, Message("tool", ({"type": "tool_result", "tool_call_id": call_id, "result": result, "is_error": is_error},), tool_call_id=call_id))
             if event.event == "done":
                 data.setdefault("finish_reason", "stop")
-                data["message_id"] = self.store.append(conversation_id, Message("assistant", "".join(text_parts)), model=request.model, provider=request.provider)
+                flush_assistant()
+                if last_message_id:
+                    data["message_id"] = last_message_id
+            if event.event == "error":
+                flush_assistant()
             data["_event_type"] = event.event
             yield {"event": event.event, "data": data}
 

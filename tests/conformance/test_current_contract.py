@@ -2,6 +2,7 @@ import unittest
 
 from tests import bootstrap  # noqa: F401
 from paa_template.adapters import MockAdapter, OpenAICompatibleAdapter
+from paa_template.adapters.mock import ModelStreamChunk
 from paa_template.agent_loop import AgentLoop
 from paa_template.gateway import Gateway
 from paa_template.types import CompletionRequest, AgentLoopRequest, AgentLoopRequestMetadata, Message
@@ -21,7 +22,41 @@ class RecordingAdapter(MockAdapter):
         yield from super().stream(request)
 
 
+class ToolTurnAdapter(MockAdapter):
+    def stream(self, request):
+        if any(message.role == "tool" for message in request.messages):
+            yield ModelStreamChunk("text-delta", {"content": "tool answer"})
+            yield ModelStreamChunk("done", {"finish_reason": "stop"})
+            return
+        yield ModelStreamChunk("text-delta", {"content": "checking "})
+        yield ModelStreamChunk("tool-call", {"id": "tc-1", "name": "read_file", "arguments": {"path": "README.md"}})
+        yield ModelStreamChunk("tool-result", {"id": "tc-1", "output": {"ok": True}})
+        yield ModelStreamChunk("text-delta", {"content": "complete"})
+        yield ModelStreamChunk("done", {"finish_reason": "stop"})
+
+
 class CurrentContractTests(unittest.TestCase):
+    def test_tool_turn_events_and_persistence_keep_canonical_parts(self):
+        from tempfile import TemporaryDirectory
+        from paa_template.gateway.routes import ConversationStore
+
+        with TemporaryDirectory() as directory:
+            path = f"{directory}/conversations.json"
+            gateway = Gateway(AgentLoop(ToolTurnAdapter()), store=ConversationStore(persistence_path=path))
+            response = gateway.handle("POST", "/conversations/messages", body=BODY, headers=HEADERS)
+            events = list(response.stream)
+            tool_call = next(event for event in events if event["event"] == "tool-call")
+            tool_result = next(event for event in events if event["event"] == "tool-result")
+            self.assertEqual(tool_call["data"]["source_id"], "read")
+            self.assertEqual(tool_call["data"]["arguments"], {"path": "README.md"})
+            self.assertEqual(tool_result["data"]["output"], '{"ok":true}')
+
+            conversation_id = response.headers["X-Conversation-ID"]
+            restarted = Gateway(AgentLoop(ToolTurnAdapter()), store=ConversationStore(persistence_path=path))
+            detail = restarted.handle("GET", f"/conversations/{conversation_id}").body
+            self.assertEqual([message["role"] for message in detail["messages"]], ["user", "assistant", "tool", "assistant"])
+            self.assertEqual(detail["messages"][1]["content"][-1]["source_id"], "read")
+            self.assertEqual(detail["messages"][2]["content"][0]["result"], {"ok": True})
     def test_provider_and_model_change_without_restart_and_are_saved(self):
         selected = {"provider": "alpha", "model": "m1"}
         adapter = RecordingAdapter()
