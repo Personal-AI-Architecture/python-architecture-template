@@ -17,6 +17,7 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any]
+    source_id: str | None = None
     invalid_arguments: bool = False
 
 
@@ -149,4 +150,7 @@ def normalize_tool_call(value: Any) -> ToolCall | None:
     if not isinstance(name, str) or not name.strip():
         return None
     arguments, invalid = _parse_arguments(source.get("arguments"))
-    return ToolCall(id=record["id"], name=name.strip(), arguments=arguments, invalid_arguments=invalid)
+    source_id = record.get("source_id")
+    if not isinstance(source_id, str) or not source_id.strip():
+        source_id = None
+    return ToolCall(id=record["id"], name=name.strip(), arguments=arguments, source_id=source_id, invalid_arguments=invalid)
